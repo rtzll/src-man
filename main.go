@@ -436,11 +436,13 @@ func runGitCommand(ctx context.Context, path string, args ...string) (string, er
 }
 
 func renderLoop(ctx context.Context, events <-chan event) {
-	liveWriter := uilive.New()
+	writer := uilive.New()
 	// Write to stdout even if verbose mode is redirecting logs to stderr
-	liveWriter.Out = os.Stdout
-	liveWriter.Start()
-	defer liveWriter.Stop()
+	writer.Out = os.Stdout
+	// Set refresh interval to reduce UI flicker
+	writer.RefreshInterval = time.Millisecond * 100
+	writer.Start()
+	defer writer.Stop()
 
 	var (
 		upToDateCount int
@@ -462,22 +464,22 @@ func renderLoop(ctx context.Context, events <-chan event) {
 
 	// Update the display
 	redraw := func() {
-		fmt.Fprintf(liveWriter, "%s Up-to-date: %d\n", upToDateSymbol, upToDateCount)
+		fmt.Fprintf(writer, "%s Up-to-date: %d\n", upToDateSymbol, upToDateCount)
 
 		// Only show the Pulling line if we're not completely done
 		if !allDone {
 			if len(inProgress) > 0 {
-				fmt.Fprintf(liveWriter, "%s Pulling(%d): %s\n", pullingSymbol, len(inProgress), strings.Join(inProgress, ", "))
+				fmt.Fprintf(writer, "%s Pulling(%d): %s\n", pullingSymbol, len(inProgress), strings.Join(inProgress, ", "))
 			} else {
-				fmt.Fprintf(liveWriter, "%s Pulling(0)\n", pullingSymbol)
+				fmt.Fprintf(writer, "%s Pulling(0)\n", pullingSymbol)
 			}
 		}
 
 		for _, l := range updatedLines {
-			fmt.Fprintln(liveWriter, l)
+			fmt.Fprintln(writer, l)
 		}
 
-		if err := liveWriter.Flush(); err != nil {
+		if err := writer.Flush(); err != nil {
 			log.Printf("error flushing output: %v", err)
 			return
 		}
