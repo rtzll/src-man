@@ -63,13 +63,10 @@ src-man [flags]
 ## Example Output
 
 ```
-──────────────────────────────────
- Found 112 git repos
-──────────────────────────────────
-✔ Up-to-date: 109
-↑ Updated: gitbutlerapp/gitbutler (6 new commits)
-↑ Updated: calcom/cal.com (1 new commits)
-↑ Updated: ziglang/zig (2 new commits)
+$ src-man
+✔ Up-to-date: 113/115
+↑ Updated: zed-industries/zed (1 new commits)
+↑ Updated: better-auth/better-auth (2 new commits)
 ```
 
 ## Repository Detection
