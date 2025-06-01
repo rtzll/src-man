@@ -23,7 +23,6 @@ import (
 
 const (
 	gitPullOptions = "--ff-only --quiet"
-	uiSeparator    = "──────────────────────────────────"
 	defaultTimeout = 30 * time.Second
 
 	// Environment variables
@@ -38,7 +37,7 @@ const (
 	updatedSymbol  = "↑"
 
 	// Version information
-	version = "0.1.1"
+	version = "0.2.0"
 )
 
 var (
@@ -149,12 +148,6 @@ func runSrcMan() error {
 		return fmt.Errorf("finding repos: %w", err)
 	}
 
-	// Header
-	fmt.Println()
-	fmt.Println(uiSeparator)
-	fmt.Printf(" Found %d git repos\n", len(repos))
-	fmt.Println(uiSeparator)
-
 	events := make(chan event)
 	var wg sync.WaitGroup
 
@@ -163,7 +156,7 @@ func runSrcMan() error {
 	renderWg.Add(1)
 	go func() {
 		defer renderWg.Done()
-		renderLoop(ctx, events)
+		renderLoop(ctx, events, len(repos))
 	}()
 
 	// Dispatch workers using worker pool pattern
@@ -435,7 +428,7 @@ func runGitCommand(ctx context.Context, path string, args ...string) (string, er
 	return strings.TrimSpace(string(out)), nil
 }
 
-func renderLoop(ctx context.Context, events <-chan event) {
+func renderLoop(ctx context.Context, events <-chan event, totalRepos int) {
 	writer := uilive.New()
 	// Write to stdout even if verbose mode is redirecting logs to stderr
 	writer.Out = os.Stdout
@@ -464,7 +457,7 @@ func renderLoop(ctx context.Context, events <-chan event) {
 
 	// Update the display
 	redraw := func() {
-		fmt.Fprintf(writer, "%s Up-to-date: %d\n", upToDateSymbol, upToDateCount)
+		fmt.Fprintf(writer, "%s Up-to-date: %d/%d\n", upToDateSymbol, upToDateCount, totalRepos)
 
 		// Only show the Pulling line if we're not completely done
 		if !allDone {
