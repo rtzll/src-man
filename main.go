@@ -37,12 +37,12 @@ const (
 	updatedSymbol  = "↑"
 
 	// Version information
-	version = "0.2.0"
+	version = "0.2.1"
 )
 
 var (
 	pullArgs       = strings.Split(gitPullOptions, " ")
-	defaultMaxJobs = runtime.NumCPU() * 2
+	defaultMaxJobs = runtime.NumCPU()
 
 	// Command line flags
 	maxJobs    int
