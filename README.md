@@ -1,10 +1,10 @@
 # src-man
 
-A fast, concurrent Git repository manager that automatically pulls updates from all your local repositories.
+A fast, concurrent Git repository manager that auto-updates local repos and shows progress in real time.
 
 ## Motivation
 
-I found myself with a growing collection of Git repositories spread across different directories. I wanted a simple tool to keep them all up-to-date without having to manually run `git pull` for each one.
+I found myself with a growing collection of Git repos spread across different directories. I wanted a simple tool to keep them all up-to-date without having to manually run `git pull` for each one.
 
 ## Features
 
@@ -21,6 +21,33 @@ I found myself with a growing collection of Git repositories spread across diffe
 
 ```bash
 go install github.com/rtzll/src-man@latest
+```
+
+## Demo
+
+![CLI demo](assets/demo.gif)
+
+### Example Output
+```
+$ src-man
+✔ Up-to-date: 101/117
+↑ Updated: sourcegraph/cody (1 new commits)
+↑ Updated: github/github-mcp-server (1 new commits)
+↑ Updated: golang/go (1 new commits)
+↑ Updated: sst/opencode (1 new commits)
+↑ Updated: temporalio/temporal (5 new commits)
+↑ Updated: jj-vcs/jj (3 new commits)
+↑ Updated: microsoft/typescript-go (5 new commits)
+↑ Updated: gitbutlerapp/gitbutler (5 new commits)
+↑ Updated: zed-industries/zed (9 new commits)
+↑ Updated: tigerbeetle/tigerbeetle (2 new commits)
+↑ Updated: better-auth/better-auth (1 new commits)
+↑ Updated: ziglang/zig (37 new commits)
+↑ Updated: LeaVerou/lea.verou.me (3 new commits)
+↑ Updated: calcom/cal.com (3 new commits)
+↑ Updated: the-pudding/website (2 new commits)
+
+× Error: tylerneylon/pacpac → network error: cannot access remote
 ```
 
 ## Usage
@@ -59,15 +86,6 @@ src-man [flags]
    - Currently pulling repositories
    - Successfully updated repositories with commit counts
    - Any errors encountered
-
-## Example Output
-
-```
-$ src-man
-✔ Up-to-date: 113/115
-↑ Updated: zed-industries/zed (1 new commits)
-↑ Updated: better-auth/better-auth (2 new commits)
-```
 
 ## Repository Detection
 
