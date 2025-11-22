@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -37,7 +38,7 @@ const (
 	updatedSymbol  = "↑"
 
 	// Version information
-	version = "0.2.1"
+	version = "0.3.0"
 )
 
 var (
@@ -243,7 +244,8 @@ func processRepo(ctx context.Context, path string, events chan<- event) {
 	gitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	repoName := getRepositoryName(gitCtx, path)
+	remoteURL := getRemoteURL(gitCtx, path)
+	repoName := getRepositoryName(remoteURL, path)
 
 	if verbose {
 		log.Printf("Processing repository: %s (%s)", repoName, path)
@@ -258,7 +260,7 @@ func processRepo(ctx context.Context, path string, events chan<- event) {
 		events <- event{
 			eventType: Error,
 			repoName:  repoName,
-			msg:       "local error: " + err.Error(),
+			msg:       "local error: " + summarizeGitError(err),
 		}
 		return
 	}
@@ -268,16 +270,15 @@ func processRepo(ctx context.Context, path string, events chan<- event) {
 		if verbose {
 			log.Printf("Error getting remote HEAD for %s: %v", repoName, err)
 		}
-		// Check if the error is a timeout
-		errMsg := "network error: cannot access remote"
-		if errors.Is(err, context.DeadlineExceeded) {
-			errMsg = "timeout: remote operation took too long"
+		msg := summarizeGitError(err)
+		if diag := diagnoseRemoteAccess(remoteURL); diag != "" {
+			msg = diag
 		}
-		// Report network errors to the user
+		// Report remote errors to the user with the git-provided context
 		events <- event{
 			eventType: Error,
 			repoName:  repoName,
-			msg:       errMsg,
+			msg:       msg,
 		}
 		return
 	}
@@ -312,7 +313,7 @@ func processRepo(ctx context.Context, path string, events chan<- event) {
 		log.Printf("Pulling updates for %s", repoName)
 	}
 
-	cmd := exec.CommandContext(gitCtx, "git", append([]string{"-C", path, "pull"}, pullArgs...)...)
+	cmd := gitCommand(gitCtx, path, append([]string{"pull"}, pullArgs...)...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		errMsg := extractErrorMessage(string(out))
@@ -362,27 +363,19 @@ func processRepo(ctx context.Context, path string, events chan<- event) {
 	events <- event{eventType: Updated, repoName: repoName, commitCount: commitCount}
 }
 
-func getRepositoryName(ctx context.Context, path string) string {
-	// Using the already timeout-limited context passed from processRepo
-	remoteUrl, err := runGitCommand(ctx, path, "config", "--get", "remote.origin.url")
-	if err != nil {
-		if verbose {
-			log.Printf("Error getting remote URL for %s: %v", path, err)
-		}
-		return filepath.Base(path)
-	}
-	remoteUrl = strings.TrimSuffix(remoteUrl, ".git")
+func getRepositoryName(remoteURL, path string) string {
+	remoteURL = strings.TrimSuffix(remoteURL, ".git")
 
 	// Handle SSH URLs (git@github.com:org/repo)
-	if strings.HasPrefix(remoteUrl, "git@") {
-		parts := strings.Split(remoteUrl, ":")
+	if strings.HasPrefix(remoteURL, "git@") {
+		parts := strings.Split(remoteURL, ":")
 		if len(parts) == 2 {
 			return parts[1]
 		}
 	}
 
 	// Handle HTTP/HTTPS URLs
-	parsedURL, err := url.Parse(remoteUrl)
+	parsedURL, err := url.Parse(remoteURL)
 	if err == nil && parsedURL.Host != "" {
 		// Remove leading slash and return the path
 		path := strings.TrimPrefix(parsedURL.Path, "/")
@@ -392,10 +385,24 @@ func getRepositoryName(ctx context.Context, path string) string {
 	}
 
 	// fallback to original logic for any other format
-	if slash := strings.Index(remoteUrl, "/"); slash != -1 {
-		return remoteUrl[slash+1:]
+	if slash := strings.Index(remoteURL, "/"); slash != -1 {
+		return remoteURL[slash+1:]
 	}
-	return remoteUrl
+	if remoteURL != "" {
+		return remoteURL
+	}
+	return filepath.Base(path)
+}
+
+func getRemoteURL(ctx context.Context, path string) string {
+	remoteURL, err := runGitCommand(ctx, path, "config", "--get", "remote.origin.url")
+	if err != nil {
+		if verbose {
+			log.Printf("Error getting remote URL for %s: %v", path, err)
+		}
+		return ""
+	}
+	return remoteURL
 }
 
 // extractErrorMessage returns the first non-blank line, stripping any leading "hint:"
@@ -414,8 +421,19 @@ func extractErrorMessage(raw string) string {
 	return "pull failed"
 }
 
+// gitCommand returns an exec.Cmd prepared to run git with the configured
+// environment. GIT_TERMINAL_PROMPT=0 disables interactive auth prompts so we
+// can fail fast and report which repository needs credentials. We also clear
+// credential helpers so macOS Keychain or other helpers cannot pop dialogs.
+func gitCommand(ctx context.Context, path string, args ...string) *exec.Cmd {
+	baseArgs := []string{"-c", "credential.helper=", "-C", path}
+	cmd := exec.CommandContext(ctx, "git", append(baseArgs, args...)...)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=/bin/true")
+	return cmd
+}
+
 func runGitCommand(ctx context.Context, path string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", path}, args...)...)
+	cmd := gitCommand(ctx, path, args...)
 	out, err := cmd.Output()
 	if err != nil {
 		var exitErr *exec.ExitError
@@ -426,6 +444,102 @@ func runGitCommand(ctx context.Context, path string, args ...string) (string, er
 		return "", fmt.Errorf("git %s failed: %s: %w", strings.Join(args, " "), errMsg, err)
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+// summarizeGitError extracts the most useful part of a git error, including
+// stderr when available and handling timeouts distinctly.
+func summarizeGitError(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout: remote operation took too long"
+	}
+
+	if stderr := gitStderr(err); stderr != "" {
+		if msg := extractErrorMessage(stderr); msg != "" {
+			return msg
+		}
+	}
+
+	if msg := extractErrorMessage(err.Error()); msg != "" {
+		return msg
+	}
+
+	return "git command failed"
+}
+
+func gitStderr(err error) string {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && len(exitErr.Stderr) > 0 {
+		return string(exitErr.Stderr)
+	}
+	return ""
+}
+
+// diagnoseRemoteAccess performs a lightweight HTTP HEAD to identify common
+// remote availability issues without using authenticated API calls.
+func diagnoseRemoteAccess(remoteURL string) string {
+	httpURL := toHTTPURL(remoteURL)
+	if httpURL == "" {
+		return ""
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequest(http.MethodHead, httpURL, nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("User-Agent", "src-man")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusUnavailableForLegalReasons: // 451
+		return "remote unavailable (DMCA takedown)"
+	case http.StatusNotFound: // 404
+		return "remote not found or made private"
+	case http.StatusMovedPermanently, http.StatusFound, http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
+		return fmt.Sprintf("remote moved/renamed (HTTP %d)", resp.StatusCode)
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return "authentication required for remote"
+	case http.StatusTooManyRequests:
+		return "remote rate limited (HTTP 429)"
+	case http.StatusOK:
+		return "remote reachable; git authentication failed"
+	default:
+		if resp.StatusCode >= 500 {
+			return fmt.Sprintf("remote server error (HTTP %d)", resp.StatusCode)
+		}
+	}
+
+	return ""
+}
+
+// toHTTPURL converts common git remote formats into an HTTPS URL for probing.
+func toHTTPURL(remoteURL string) string {
+	if remoteURL == "" {
+		return ""
+	}
+
+	remoteURL = strings.TrimSuffix(remoteURL, ".git")
+
+	if strings.HasPrefix(remoteURL, "git@") {
+		parts := strings.SplitN(strings.TrimPrefix(remoteURL, "git@"), ":", 2)
+		if len(parts) == 2 {
+			host := parts[0]
+			path := strings.TrimPrefix(parts[1], "/")
+			return fmt.Sprintf("https://%s/%s", host, path)
+		}
+	}
+
+	parsed, err := url.Parse(remoteURL)
+	if err != nil || parsed.Host == "" {
+		return ""
+	}
+	parsed.Scheme = "https"
+	return parsed.String()
 }
 
 func renderLoop(ctx context.Context, events <-chan event, totalRepos int) {
