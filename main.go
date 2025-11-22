@@ -154,24 +154,20 @@ func runSrcMan() error {
 
 	// Start renderer and track it so we can wait for it
 	var renderWg sync.WaitGroup
-	renderWg.Add(1)
-	go func() {
-		defer renderWg.Done()
+	renderWg.Go(func() {
 		renderLoop(ctx, events, len(repos))
-	}()
+	})
 
 	// Dispatch workers using worker pool pattern
 	jobs := make(chan string, len(repos))
 
 	// Start worker goroutines
 	for range maxJobs {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for repo := range jobs {
 				processRepo(ctx, repo, events)
 			}
-		}()
+		})
 	}
 
 	// Send all repos to the worker pool
@@ -367,8 +363,8 @@ func getRepositoryName(remoteURL, path string) string {
 	remoteURL = strings.TrimSuffix(remoteURL, ".git")
 
 	// Handle SSH URLs (git@github.com:org/repo)
-	if strings.HasPrefix(remoteURL, "git@") {
-		parts := strings.Split(remoteURL, ":")
+	if trimmed, ok := strings.CutPrefix(remoteURL, "git@"); ok {
+		parts := strings.Split(trimmed, ":")
 		if len(parts) == 2 {
 			return parts[1]
 		}
@@ -413,8 +409,8 @@ func extractErrorMessage(raw string) string {
 			continue
 		}
 		// strip leading "hint:" if present
-		if strings.HasPrefix(line, "hint:") {
-			line = strings.TrimSpace(strings.TrimPrefix(line, "hint:"))
+		if trimmed, ok := strings.CutPrefix(line, "hint:"); ok {
+			line = strings.TrimSpace(trimmed)
 		}
 		return line
 	}
@@ -525,8 +521,8 @@ func toHTTPURL(remoteURL string) string {
 
 	remoteURL = strings.TrimSuffix(remoteURL, ".git")
 
-	if strings.HasPrefix(remoteURL, "git@") {
-		parts := strings.SplitN(strings.TrimPrefix(remoteURL, "git@"), ":", 2)
+	if trimmed, ok := strings.CutPrefix(remoteURL, "git@"); ok {
+		parts := strings.SplitN(trimmed, ":", 2)
 		if len(parts) == 2 {
 			host := parts[0]
 			path := strings.TrimPrefix(parts[1], "/")
