@@ -30,7 +30,7 @@ go install github.com/rtzll/src-man@latest
 ### Example Output
 ```
 $ src-man
-✔ Up-to-date: 101/117
+✔ Already up-to-date: 101/117
 ↑ Updated: sourcegraph/cody (1 new commits)
 ↑ Updated: github/github-mcp-server (1 new commits)
 ↑ Updated: golang/go (1 new commits)
@@ -82,7 +82,7 @@ src-man [flags]
    - Skips repositories that are already up-to-date
    - Pulls repositories with new commits using `git pull --ff-only --quiet`
 3. Displays live progress with:
-   - Count of up-to-date repositories
+   - Count of repositories that were already up-to-date
    - Currently pulling repositories
    - Successfully updated repositories with commit counts
    - Any errors encountered

@@ -633,11 +633,11 @@ func renderLoop(ctx context.Context, events <-chan event, totalRepos int) {
 	defer writer.Stop()
 
 	var (
-		upToDateCount int
-		inProgress    []string
-		updatedLines  []string
-		errorLines    []string
-		allDone       bool
+		alreadyUpToDateCount int
+		inProgress           []string
+		updatedLines         []string
+		errorLines           []string
+		allDone              bool
 	)
 
 	// Helper to remove a repo from inProgress list
@@ -652,7 +652,7 @@ func renderLoop(ctx context.Context, events <-chan event, totalRepos int) {
 
 	// Update the display
 	redraw := func() {
-		fmt.Fprintf(writer, "%s Up-to-date: %d/%d\n", upToDateSymbol, upToDateCount, totalRepos)
+		fmt.Fprintf(writer, "%s Already up-to-date: %d/%d\n", upToDateSymbol, alreadyUpToDateCount, totalRepos)
 
 		// Only show the Pulling line if we're not completely done
 		if !allDone {
@@ -687,7 +687,7 @@ func renderLoop(ctx context.Context, events <-chan event, totalRepos int) {
 			// Process event
 			switch ev.eventType {
 			case UpToDate:
-				upToDateCount++
+				alreadyUpToDateCount++
 
 			case Pulling:
 				inProgress = append(inProgress, ev.repoName)
