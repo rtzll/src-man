@@ -244,18 +244,14 @@ func getEnvDuration(key string, fallback time.Duration) time.Duration {
 }
 
 func processRepo(ctx context.Context, path string, events chan<- event) {
-	// Create a single context with timeout for all git operations in this function
-	gitCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	remoteURL := getRemoteURL(gitCtx, path, "origin")
+	remoteURL := getRemoteURL(ctx, path, "origin")
 	repoName := getRepositoryName(remoteURL, path)
 
 	if verbose {
 		log.Printf("Processing repository: %s (%s)", repoName, path)
 	}
 
-	localSHA, err := runGitCommand(gitCtx, path, "rev-parse", "HEAD")
+	localSHA, err := runGitCommand(ctx, path, "rev-parse", "HEAD")
 	if err != nil {
 		if verbose {
 			log.Printf("Error getting local HEAD for %s: %v", repoName, err)
@@ -269,7 +265,7 @@ func processRepo(ctx context.Context, path string, events chan<- event) {
 		return
 	}
 
-	upstream, err := getUpstreamRef(gitCtx, path)
+	upstream, err := getUpstreamRef(ctx, path)
 	if err != nil {
 		if verbose {
 			log.Printf("Error getting upstream for %s: %v", repoName, err)
@@ -282,12 +278,12 @@ func processRepo(ctx context.Context, path string, events chan<- event) {
 		return
 	}
 
-	if upstreamRemoteURL := getRemoteURL(gitCtx, path, upstream.remote); upstreamRemoteURL != "" {
+	if upstreamRemoteURL := getRemoteURL(ctx, path, upstream.remote); upstreamRemoteURL != "" {
 		remoteURL = upstreamRemoteURL
 		repoName = getRepositoryName(remoteURL, path)
 	}
 
-	remoteHeadOutput, err := runGitCommand(gitCtx, path, "ls-remote", upstream.remote, upstream.ref)
+	remoteHeadOutput, err := runGitCommand(ctx, path, "ls-remote", upstream.remote, upstream.ref)
 	if err != nil {
 		if verbose {
 			log.Printf("Error getting upstream HEAD for %s: %v", repoName, err)
@@ -335,10 +331,12 @@ func processRepo(ctx context.Context, path string, events chan<- event) {
 		log.Printf("Pulling updates for %s", repoName)
 	}
 
-	cmd := gitCommand(gitCtx, path, append([]string{"pull"}, pullArgs...)...)
-	out, err := cmd.CombinedOutput()
+	out, err := runGitCombinedCommand(ctx, path, append([]string{"pull"}, pullArgs...)...)
 	if err != nil {
-		errMsg := extractErrorMessage(string(out))
+		errMsg := extractErrorMessage(out)
+		if errors.Is(err, context.DeadlineExceeded) {
+			errMsg = summarizeGitError(err)
+		}
 		if verbose {
 			log.Printf("Pull failed for %s: %s", repoName, errMsg)
 		}
@@ -350,7 +348,7 @@ func processRepo(ctx context.Context, path string, events chan<- event) {
 		return
 	}
 
-	newSHA, err := runGitCommand(gitCtx, path, "rev-parse", "HEAD")
+	newSHA, err := runGitCommand(ctx, path, "rev-parse", "HEAD")
 	if err != nil {
 		if verbose {
 			log.Printf("Error getting new HEAD after pull for %s: %v", repoName, err)
@@ -359,7 +357,7 @@ func processRepo(ctx context.Context, path string, events chan<- event) {
 		return
 	}
 
-	commitCountStr, err := runGitCommand(gitCtx, path, "rev-list", "--count", fmt.Sprintf("%s..%s", localSHA, newSHA))
+	commitCountStr, err := runGitCommand(ctx, path, "rev-list", "--count", fmt.Sprintf("%s..%s", localSHA, newSHA))
 	if err != nil {
 		if verbose {
 			log.Printf("Error counting commits for %s: %v", repoName, err)
@@ -487,10 +485,21 @@ func gitCommand(ctx context.Context, path string, args ...string) *exec.Cmd {
 	return cmd
 }
 
+func withGitTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, timeout)
+}
+
 func runGitCommand(ctx context.Context, path string, args ...string) (string, error) {
-	cmd := gitCommand(ctx, path, args...)
+	cmdCtx, cancel := withGitTimeout(ctx)
+	defer cancel()
+
+	cmd := gitCommand(cmdCtx, path, args...)
 	out, err := cmd.Output()
 	if err != nil {
+		if cmdCtx.Err() != nil {
+			return "", fmt.Errorf("git %s failed: %w", strings.Join(args, " "), cmdCtx.Err())
+		}
+
 		var exitErr *exec.ExitError
 		errMsg := ""
 		if errors.As(err, &exitErr) {
@@ -499,6 +508,21 @@ func runGitCommand(ctx context.Context, path string, args ...string) (string, er
 		return "", fmt.Errorf("git %s failed: %s: %w", strings.Join(args, " "), errMsg, err)
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+func runGitCombinedCommand(ctx context.Context, path string, args ...string) (string, error) {
+	cmdCtx, cancel := withGitTimeout(ctx)
+	defer cancel()
+
+	cmd := gitCommand(cmdCtx, path, args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		if cmdCtx.Err() != nil {
+			return string(out), fmt.Errorf("git %s failed: %w", strings.Join(args, " "), cmdCtx.Err())
+		}
+		return string(out), fmt.Errorf("git %s failed: %w", strings.Join(args, " "), err)
+	}
+	return string(out), nil
 }
 
 // summarizeGitError extracts the most useful part of a git error, including
