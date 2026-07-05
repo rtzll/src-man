@@ -213,6 +213,9 @@ func findRepos(base string) ([]string, error) {
 		}
 	}
 
+	slices.Sort(out)
+	out = slices.Compact(out)
+
 	if verbose {
 		log.Printf("Found %d repositories", len(out))
 	}
