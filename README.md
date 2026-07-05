@@ -1,6 +1,6 @@
 # src-man
 
-A fast, concurrent Git repository manager that auto-updates local repos and shows progress in real time.
+A tiny CLI for updating many local Git repos concurrently.
 
 ## Motivation
 
