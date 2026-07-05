@@ -83,6 +83,7 @@ var rootCmd = &cobra.Command{
 	Long: `src-man is a tool that finds and updates git repositories in your source directory.
 It concurrently pulls updates for multiple repositories and provides a clean UI
 to track progress.`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runSrcMan()
 	},
@@ -94,6 +95,7 @@ to track progress.`,
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Show version information",
+	Args:  cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Printf("src-man version %s\n", version)
 	},
