@@ -71,6 +71,11 @@ type event struct {
 	msg         string    // Error message (for Error events)
 }
 
+type upstreamRef struct {
+	remote string
+	ref    string
+}
+
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "src-man",
@@ -240,7 +245,7 @@ func processRepo(ctx context.Context, path string, events chan<- event) {
 	gitCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	remoteURL := getRemoteURL(gitCtx, path)
+	remoteURL := getRemoteURL(gitCtx, path, "origin")
 	repoName := getRepositoryName(remoteURL, path)
 
 	if verbose {
@@ -261,10 +266,28 @@ func processRepo(ctx context.Context, path string, events chan<- event) {
 		return
 	}
 
-	remoteHeadOutput, err := runGitCommand(gitCtx, path, "ls-remote", "origin", "HEAD")
+	upstream, err := getUpstreamRef(gitCtx, path)
 	if err != nil {
 		if verbose {
-			log.Printf("Error getting remote HEAD for %s: %v", repoName, err)
+			log.Printf("Error getting upstream for %s: %v", repoName, err)
+		}
+		events <- event{
+			eventType: Error,
+			repoName:  repoName,
+			msg:       summarizeGitError(err),
+		}
+		return
+	}
+
+	if upstreamRemoteURL := getRemoteURL(gitCtx, path, upstream.remote); upstreamRemoteURL != "" {
+		remoteURL = upstreamRemoteURL
+		repoName = getRepositoryName(remoteURL, path)
+	}
+
+	remoteHeadOutput, err := runGitCommand(gitCtx, path, "ls-remote", upstream.remote, upstream.ref)
+	if err != nil {
+		if verbose {
+			log.Printf("Error getting upstream HEAD for %s: %v", repoName, err)
 		}
 		msg := summarizeGitError(err)
 		if diag := diagnoseRemoteAccess(remoteURL); diag != "" {
@@ -390,11 +413,44 @@ func getRepositoryName(remoteURL, path string) string {
 	return filepath.Base(path)
 }
 
-func getRemoteURL(ctx context.Context, path string) string {
-	remoteURL, err := runGitCommand(ctx, path, "config", "--get", "remote.origin.url")
+func getUpstreamRef(ctx context.Context, path string) (upstreamRef, error) {
+	upstreamName, err := runGitCommand(ctx, path, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+	if err != nil {
+		return upstreamRef{}, fmt.Errorf("no upstream configured for current branch")
+	}
+
+	remoteOutput, err := runGitCommand(ctx, path, "remote")
+	if err != nil {
+		return upstreamRef{}, fmt.Errorf("listing remotes: %w", err)
+	}
+
+	remotes := strings.Fields(remoteOutput)
+	slices.SortFunc(remotes, func(a, b string) int {
+		return len(b) - len(a)
+	})
+
+	for _, remote := range remotes {
+		branch, ok := strings.CutPrefix(upstreamName, remote+"/")
+		if ok && branch != "" {
+			return upstreamRef{
+				remote: remote,
+				ref:    "refs/heads/" + branch,
+			}, nil
+		}
+	}
+
+	return upstreamRef{}, fmt.Errorf("cannot determine upstream remote from %q", upstreamName)
+}
+
+func getRemoteURL(ctx context.Context, path, remote string) string {
+	if remote == "" {
+		return ""
+	}
+
+	remoteURL, err := runGitCommand(ctx, path, "config", "--get", fmt.Sprintf("remote.%s.url", remote))
 	if err != nil {
 		if verbose {
-			log.Printf("Error getting remote URL for %s: %v", path, err)
+			log.Printf("Error getting %s remote URL for %s: %v", remote, path, err)
 		}
 		return ""
 	}
