@@ -23,8 +23,9 @@ import (
 )
 
 const (
-	gitPullOptions = "--ff-only --quiet"
-	defaultTimeout = 30 * time.Second
+	gitPullOptions   = "--ff-only --quiet"
+	defaultTimeout   = 30 * time.Second
+	commandWaitDelay = 250 * time.Millisecond
 
 	// Environment variables
 	envJobsKey    = "SRC_MAN_JOBS"
@@ -484,6 +485,7 @@ func gitCommand(ctx context.Context, path string, args ...string) *exec.Cmd {
 	baseArgs := []string{"-c", "credential.helper=", "-C", path}
 	cmd := exec.CommandContext(ctx, "git", append(baseArgs, args...)...)
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=/bin/true")
+	cmd.WaitDelay = commandWaitDelay
 	return cmd
 }
 
