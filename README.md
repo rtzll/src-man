@@ -28,6 +28,7 @@ go install github.com/rtzll/src-man@latest
 ![CLI demo](assets/demo.gif)
 
 ### Example Output
+
 ```
 $ src-man
 ✔ Already up-to-date: 101/117
@@ -90,6 +91,7 @@ src-man [flags]
 ## Repository Detection
 
 The tool searches for repositories in these patterns:
+
 - `~/src/*/` - Individual repositories
 - `~/src/*-src/*/` - Organized by source
 - `~/src/_*/` - Special collections
